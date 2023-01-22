@@ -10,13 +10,6 @@
 
 #include <signal.h>
 #include <cstdlib>
-// Define the function to be called when ctrl-c (SIGINT) is sent to process
-void signal_callback_handler(int signum) {
-  std::cout << "Caught signal " << signum << std::endl;
-  // Terminate program
-  endwin();
-  exit(signum);
-}
 
 const int MIN_BET = 2;
 const int MAX_BET = 10000;
@@ -62,9 +55,9 @@ class Game {
   }
   bool isDealerWin() {
     std::vector<int> playerValues = getHandValues(playerHand);
+    std::vector<int> dealerValues = getHandValues(dealerHand);
     if (playerValues.size() == 0)
       return true;
-    std::vector<int> dealerValues = getHandValues(dealerHand);
     if (dealerValues.size() == 0)
       return false;
     int maxPlayerScore = playerValues.at(playerValues.size() - 1);
@@ -73,10 +66,10 @@ class Game {
   }
   bool isTie() {
     std::vector<int> playerValues = getHandValues(playerHand);
-    if (playerValues.size() == 0)
-      return true;
     std::vector<int> dealerValues = getHandValues(dealerHand);
-    if (dealerValues.size() == 0)
+    if (playerValues.size() == 0 && dealerValues.size() == 0)
+      return true;
+    if (playerValues.size() == 0)
       return false;
     int maxPlayerScore = playerValues.at(playerValues.size() - 1);
     int maxDealerScore = dealerValues.at(dealerValues.size() - 1);
@@ -90,9 +83,17 @@ class Game {
     if (dealerValues.size() == 0) {
       return true;
     }
-    int maxPlayerScore = playerValues.at(playerValues.size() - 1);
-    int maxDealerScore = dealerValues.at(dealerValues.size() - 1);
+    int maxPlayerScore = playerValues[playerValues.size() - 1];
+    int maxDealerScore = dealerValues[dealerValues.size() - 1];
     return maxDealerScore > 16 && maxPlayerScore > maxDealerScore;
+  }
+  bool isPlayer21() {
+    std::vector<int> playerHandValues = getHandValues(playerHand);
+    if (playerHandValues.size() == 0)
+      return false;
+    auto q =
+        std::search_n(playerHandValues.begin(), playerHandValues.end(), 1, 21);
+    return q != playerHandValues.end();
   }
 
   std::string labelDeck() {
@@ -196,16 +197,15 @@ class Game {
     return result;
   }
 
-  /*
+  enum Key { KK_UP, KK_DOWN, KK_J, KK_K, KK_Q, KK_COUNT };
+  Key getKeyPress() {
+    /*
   up 27 91 65
   down 27 91 66
   j 106
   k 107
   q 113
   */
-  enum Key { KK_UP, KK_DOWN, KK_J, KK_K, KK_Q, KK_COUNT };
-
-  Key getKeyPress() {
     int buf[10]{0};
     while (true) {
       int c = -1;
@@ -232,10 +232,6 @@ class Game {
       }
     }
     return KK_COUNT;
-  }
-
-  bool isBankKey(Key k) {
-    return k == KK_UP || k == KK_DOWN || k == KK_J || k == KK_Q;
   }
   void playBank() {
     printw(labelBankScreen().c_str());
@@ -273,24 +269,13 @@ class Game {
     }
     printw(labelPlayScreen().c_str());
     Key k = getKeyPress();
-    std::vector<int> playerHandValues;
     std::vector<int> dealerHandValues;
     int maxDealerValue = 0;
-    std::vector<int>::iterator q;
-    int bj = 21;
     switch (k) {
       case KK_J:
         dealPlayer();
-        playerHandValues = getHandValues(playerHand);
-        if (playerHandValues.size() == 0) {
-          // player bust
-          mode = M_END;
-          return;
-        }
-        q = std::search_n(playerHandValues.begin(), playerHandValues.end(), 1,
-                          bj);
-        if (q == playerHandValues.end()) {
-          // Player doesn't have 21, keep playing
+        if (!isPlayerBust() && !isPlayer21()) {
+          // continue playing
           return;
         }
         [[fallthrough]];
@@ -301,6 +286,9 @@ class Game {
         while (dealerHandValues.size() > 0 && maxDealerValue <= 16) {
           dealDealer();
           dealerHandValues = getHandValues(dealerHand);
+          if (dealerHandValues.size() == 0) {
+            break;
+          }
           maxDealerValue = dealerHandValues[dealerHandValues.size() - 1];
         }
         mode = M_END;
@@ -335,7 +323,6 @@ class Game {
   }
 
   void gameLoop() {
-    // clear screen?
     erase();
     move(0, 0);
     switch (mode) {
@@ -427,6 +414,11 @@ class Game {
   }
 };
 
+void signal_callback_handler(int signum) {
+  endwin();
+  exit(signum);
+}
+
 int main() {
   srand(clock());
   signal(SIGINT, signal_callback_handler);
@@ -436,6 +428,7 @@ int main() {
   noecho();
   nonl();               // no newline translation
   intrflush(w, false);  // help ncurses with interrupts
+  // halfdelay(1); //TODO slow in windows, shouldn't be slower
   nodelay(w, true);
   Game g(1);
   while (!g.gameQuit) {
@@ -444,16 +437,4 @@ int main() {
 
   // destroy ncurses
   endwin();
-  // g.dealDealer();
-  // g.dealDealer();
-  // g.dealPlayer();
-  // g.dealPlayer();
-  // g.dealPlayer();
-  // std::cout << g.labelDeck() << std::endl;
-  // std::cout << g.labelBet() << std::endl;
-  // std::cout << g.labelBank() << std::endl;
-  // std::cout << g.labelDealerHidden() << std::endl;
-  // std::cout << g.labelDealer() << std::endl;
-  // std::cout << g.labelPlayer() << std::endl;
-  // std::cout << g.labelGame() << std::endl;
 }

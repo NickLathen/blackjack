@@ -1,5 +1,5 @@
-CPP=gcc
-CXX=gcc
+CPP=clang
+CXX=clang
 SANITIZE=-fsanitize=undefined
 WARNALL=-Wall -Wextra -Wpedantic
 DEBUG=-g
