@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "cppbuild",
+      "label": "make_debug_executable",
+      "command": "/usr/bin/make",
+      "args": [
+        "${fileBasenameNoExtension}"
+      ],
+      "options": {
+        "cwd": "${fileDirname}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": "build",
+      "detail": "compiler: /usr/bin/clang"
+    }
+  ]
+}
