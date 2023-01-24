@@ -1,8 +1,9 @@
 #include <ncurses.h>
-#include <stdio.h>  // STDOUT_FILENO
+#include <stdio.h>
 #include <time.h>
-#include <unistd.h>  // write
+#include <unistd.h>
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <string>
@@ -11,9 +12,11 @@
 #include <signal.h>
 #include <cstdlib>
 
-const int MIN_BET = 2;
-const int MAX_BET = 10000;
-const int INITIAL_BANK = 500;
+std::ofstream logf;
+#define LOGF logf
+
+const int INITIAL_BET = 100;
+const int INITIAL_BANK = 1000;
 
 const std::string labels[13] = {"A", "2", "3",  "4", "5", "6", "7",
                                 "8", "9", "10", "J", "Q", "K"};
@@ -22,19 +25,30 @@ const int INITIAL_DECK[52] = {
     0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17,
     18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
     36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51};
+enum Key { KK_UP, KK_DOWN, KK_J, KK_K, KK_Q, KK_COUNT };
+
+// dealer blackjack
+// blackjack 3 : 2 (player wins extra)
+// doubling
+// splitting
 
 class Game {
  public:
-  Game(int nDecks) {
+  Game(int nDecks, WINDOW* w) {
+    window = w;
     decks = nDecks;
     mode = M_BANK;
     bank = INITIAL_BANK;
-    bet = MIN_BET;
+    bet = INITIAL_BET;
     gameQuit = false;
     reshuffle();
   }
   bool gameQuit;
 
+  void clearHands() {
+    playerHand.clear();
+    dealerHand.clear();
+  }
   void reshuffle() {
     int nDecks = decks;
     deck.clear();
@@ -69,7 +83,7 @@ class Game {
     std::vector<int> dealerValues = getHandValues(dealerHand);
     if (playerValues.size() == 0 && dealerValues.size() == 0)
       return true;
-    if (playerValues.size() == 0)
+    if (playerValues.size() == 0 || dealerValues.size() == 0)
       return false;
     int maxPlayerScore = playerValues.at(playerValues.size() - 1);
     int maxDealerScore = dealerValues.at(dealerValues.size() - 1);
@@ -103,7 +117,6 @@ class Game {
       result.append(labels[subIndex]);
       result.append(" ");
     }
-    std::cout << std::endl;
     return result;
   }
   std::string labelBet() {
@@ -145,17 +158,14 @@ class Game {
     return result.append(labelHand(playerHand));
   }
   std::string labelGame() {
+    if (isTie())
+      return "Tie!";
     if (isPlayerBust())
       return "BUST!";
-    if (isPlayerWin()) {
+    if (isPlayerWin())
       return "You Win!";
-    }
-    if (isDealerWin()) {
+    if (isDealerWin())
       return "Dealer Wins!";
-    }
-    if (isTie()) {
-      return "Tie!";
-    }
     return "";
   }
   std::string labelBankScreen() {
@@ -197,40 +207,23 @@ class Game {
     return result;
   }
 
-  enum Key { KK_UP, KK_DOWN, KK_J, KK_K, KK_Q, KK_COUNT };
   Key getKeyPress() {
-    /*
-  up 27 91 65
-  down 27 91 66
-  j 106
-  k 107
-  q 113
-  */
-    int buf[10]{0};
-    while (true) {
-      int c = -1;
-      int bufSize = 0;
-      while ((c = getch()) != -1) {
-        buf[bufSize++] = c;
-      }
-      switch (buf[0]) {
-        case 106:
-          return KK_J;
-        case 107:
-          return KK_K;
-        case 113:
-          return KK_Q;
-        case 27:  // escape sequence
-          if (buf[1] == 91) {
-            switch (buf[2]) {
-              case 65:
-                return KK_UP;
-              case 66:
-                return KK_DOWN;
-            }
-          }
-      }
+    int c = wgetch(window);
+    if (c == -1)
+      return KK_COUNT;
+    switch (c) {
+      case 'j':
+        return KK_J;
+      case 'k':
+        return KK_K;
+      case 'q':
+        return KK_Q;
+      case KEY_UP:
+        return KK_UP;
+      case KEY_DOWN:
+        return KK_DOWN;
     }
+    LOGF << "missing c: " << c << std::endl;
     return KK_COUNT;
   }
   void playBank() {
@@ -239,15 +232,13 @@ class Game {
     switch (k) {
       case KK_UP:
         bet += 1;
-        if (bet > MAX_BET)
-          bet = MAX_BET;
         if (bet > bank)
           bet = bank;
         return;
       case KK_DOWN:
         bet -= 1;
-        if (bet < MIN_BET)
-          bet = MIN_BET;
+        if (bet < 0)
+          bet = 0;
         return;
       case KK_J:
         mode = M_GAME;
@@ -305,9 +296,10 @@ class Game {
         bank += bet;
       } else if (!isTie()) {
         bank -= bet;
+        if (bet > bank)
+          bet = bank;
       }
-      playerHand.clear();
-      dealerHand.clear();
+      clearHands();
       reshuffle();
     }
     switch (k) {
@@ -344,6 +336,7 @@ class Game {
   int decks;
   int bet;
   int bank;
+  WINDOW* window;
   std::vector<int> deck;
   std::vector<int> dealerHand;
   std::vector<int> playerHand;
@@ -354,10 +347,9 @@ class Game {
     hand.push_back(card);
   }
   std::vector<int> getHandValues(std::vector<int> hand) {
-    // std::unordered_set<int> handValues;
     std::vector<int> handValues;
     handValues.push_back(0);
-    // assemble all possible hand values
+    // ## assemble all possible hand values
     for (int i = 0; i < (int)hand.size(); i++) {
       // for each card in the hand
       int subIndex = hand[i] % 13;
@@ -372,7 +364,7 @@ class Game {
         handValues[j] += value;
       }
     }
-    // find duplicates and out of bound values
+    // ## find duplicates and out of bound values
     std::vector<int> remove;
     for (int i = 0; i < (int)handValues.size(); i++) {
       if (i > 0 && handValues[i] == handValues[i - 1]) {
@@ -381,7 +373,7 @@ class Game {
         remove.push_back(i);
       }
     }
-    // remove duplicates and out of bound values
+    // ## remove duplicates and out of bound values
     for (int i = 0; i < (int)remove.size(); i++) {
       int removeIndex = remove[i] - i;
       handValues.erase(handValues.begin() + removeIndex);
@@ -419,8 +411,19 @@ void signal_callback_handler(int signum) {
   exit(signum);
 }
 
-int main() {
-  srand(clock());
+std::string toDirectory(std::string filepath) {
+  size_t slashI = filepath.find_last_of("/");
+  filepath = filepath.substr(0, slashI);
+  return filepath;
+}
+
+int main(int argc, char** argv) {
+  chdir(toDirectory(argv[0]).c_str());
+  logf = std::ofstream("log.txt", std::ofstream::out | std::ofstream::trunc);
+  if (!logf) {
+    std::cerr << "Failed to open log.txt\n";
+    return 1;
+  }
   signal(SIGINT, signal_callback_handler);
   // setup ncurses
   WINDOW* w = initscr();
@@ -428,11 +431,12 @@ int main() {
   noecho();
   nonl();               // no newline translation
   intrflush(w, false);  // help ncurses with interrupts
-  // halfdelay(1); //TODO slow in windows, shouldn't be slower
-  nodelay(w, true);
-  Game g(1);
+  keypad(w, true);
+  halfdelay(1);
+  Game g(1, w);
   while (!g.gameQuit) {
     g.gameLoop();
+    logf.flush();
   }
 
   // destroy ncurses

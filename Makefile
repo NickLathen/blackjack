@@ -4,7 +4,7 @@ SANITIZE=-fsanitize=undefined
 WARNALL=-Wall -Wextra -Wpedantic
 DEBUG=-g
 STD=--std=c++17
-LDLIBS=-lstdc++ -lncurses
+LDLIBS=-lstdc++ -lncurses -lubsan
 CXXFLAGS=$(STD) $(SANITIZE) $(WARNALL) $(DEBUG)
 
 #implicit rules
